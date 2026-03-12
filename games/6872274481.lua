@@ -6301,7 +6301,7 @@ run(function()
             CustomHitRegSlider.Object.Visible = false 
         end
         if AirHitsChance and AirHitsChance.Object then
-            AirHitsChance.Object.Visible = true
+            AirHitsChance.Object.Visible = false
         end
         if BoxSwingColor and BoxSwingColor.Object then
             BoxSwingColor.Object.Visible = false
