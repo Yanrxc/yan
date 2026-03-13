@@ -71,10 +71,12 @@ local function finishLoading()
     vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
         if (not teleportedServers) and (not shared.VapeIndependent) then
             teleportedServers = true
-            vape:Uninject()  
+            vape:Uninject()
+            shared.vape = nil
             vape:Save()
             local teleportScript = [[
                 shared.vapereload = true
+                task.wait(0.5)
                 if shared.VapeDeveloper then
                     loadstring(readfile('newvape/loader.lua'), 'loader')()
                 else
@@ -90,6 +92,7 @@ local function finishLoading()
             local success, err = pcall(queue_on_teleport, teleportScript)
             if not success then
                 shared.vapereload = true
+                warn('[AEROV4] queue_on_teleport failed u may need to reinject manually after teleport')
             end
         end
     end))
