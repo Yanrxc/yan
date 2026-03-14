@@ -25,11 +25,11 @@ local vape
 local loadstring = function(...)
 	local res, err = loadstring(...)
 	if err and vape then
-		vape:CreateNotification('AEROV4', 'Failed to load : '..err, 30, 'alert')
+		vape:CreateNotification('Vape', 'Failed to load : '..err, 30, 'alert')
 	end
 	return res
 end
-local queue_on_teleport = queue_on_teleport or function() print('how does an executer not support queueonteleport') end
+local queue_on_teleport = queue_on_teleport or function() end
 local isfile = isfile or function(file)
 	local suc, res = pcall(function()
 		return readfile(file)
@@ -40,27 +40,6 @@ local cloneref = cloneref or function(obj)
 	return obj
 end
 local playersService = cloneref(game:GetService('Players'))
-local function compileTable(tab)
-    local parts = {}
-    for k, v in pairs(tab) do
-        local keyStr
-        if type(k) == "string" and k:match("^[%a_][%w_]*$") then
-            keyStr = k
-        else
-            keyStr = "[" .. tostring(k) .. "]"
-        end
-        local valueStr
-        if type(v) == "string" then
-            valueStr = '"' .. v:gsub('"', '\\"') .. '"'
-        elseif type(v) == "number" or type(v) == "boolean" then
-            valueStr = tostring(v)
-        else
-            valueStr = "nil"
-        end
-        table.insert(parts, keyStr .. " = " .. valueStr)
-    end
-    return "{" .. table.concat(parts, ", ") .. "}"
-end
 
 local function downloadFile(path, func)
     if not isfile(path) then
@@ -77,48 +56,37 @@ local function downloadFile(path, func)
 end
 
 local function finishLoading()
-    vape.Init = nil
-    vape:Load()
-    task.spawn(function()
-        repeat
-            vape:Save()
-            task.wait(10)
-        until not vape.Loaded
-    end)
+	vape.Init = nil
+	vape:Load()
+	task.spawn(function()
+		repeat
+			vape:Save()
+			task.wait(10)
+		until not vape.Loaded
+	end)
 
-    local teleportedServers
-    vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
-        if (not teleportedServers) and (not shared.VapeIndependent) then
-            teleportedServers = true
-            vape:Uninject()
-            shared.vape = nil
-            vape:Save()
-            local teleportScript = [[
-                shared.vapereload = true
-                if shared.VapeDeveloper then
-                    loadstring(readfile('newvape/loader.lua'), 'loader')(sharedData)
-                else
-                    loadstring(game:HttpGet('https://raw.githubusercontent.com/poopparty/poopparty/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true), 'loader')(sharedData)
-                end
-            ]]
-            if shared.VapeDeveloper then
-                teleportScript = 'shared.VapeDeveloper = true\n' .. teleportScript
-            end
-            if shared.VapeCustomProfile then
-                teleportScript = 'shared.VapeCustomProfile = "' .. shared.VapeCustomProfile .. '"\n' .. teleportScript
-            end
-            if type(args) == 'table' then
-                teleportScript = teleportScript:gsub('sharedData', compileTable(args))
-            else
-                teleportScript = teleportScript:gsub('sharedData', '{}')
-            end
-            local success, err = pcall(queue_on_teleport, teleportScript)
-            if not success then
-                shared.vapereload = true
-                warn('[AEROV4] queue_on_teleport failed may need to reinject manually after teleport')
-            end
-        end
-    end))
+	local teleportedServers
+	vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
+		if (not teleportedServers) and (not shared.VapeIndependent) then
+			teleportedServers = true
+			local teleportScript = [[
+				shared.vapereload = true
+				if shared.VapeDeveloper then
+					loadstring(readfile('newvape/loader.lua'), 'loader')()
+				else
+					loadstring(game:HttpGet('https://raw.githubusercontent.com/poopparty/poopparty/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true), 'loader')()
+				end
+			]]
+			if shared.VapeDeveloper then
+				teleportScript = 'shared.VapeDeveloper = true\n'..teleportScript
+			end
+			if shared.VapeCustomProfile then
+				teleportScript = 'shared.VapeCustomProfile = "'..shared.VapeCustomProfile..'"\n'..teleportScript
+			end
+			vape:Save()
+			queue_on_teleport(teleportScript)
+		end
+	end))
 
     if not shared.vapereload then
         if not vape.Categories then return end
