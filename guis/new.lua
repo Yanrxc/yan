@@ -1,5 +1,4 @@
 --This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
---This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 local mainapi = {
 	Categories = {},
 	GUIColor = {
@@ -6267,6 +6266,18 @@ local function getPremadeProfiles()
 	return premades
 end
 
+local premadeBlocker = Instance.new('TextButton')
+premadeBlocker.Name = 'PremadeBlocker'
+premadeBlocker.Size = UDim2.new(1, 0, 1, 0)
+premadeBlocker.Position = UDim2.new(0, 0, 0, 0)
+premadeBlocker.BackgroundColor3 = Color3.new(0, 0, 0)
+premadeBlocker.BackgroundTransparency = 0.5
+premadeBlocker.BorderSizePixel = 0
+premadeBlocker.Text = ''
+premadeBlocker.AutoButtonColor = false
+premadeBlocker.Visible = false
+premadeBlocker.Parent = scaledgui
+
 local premadeWindow = Instance.new('Frame')
 premadeWindow.Name = 'PremadeConfigsGUI'
 premadeWindow.Size = UDim2.fromOffset(680, 480)
@@ -6328,6 +6339,7 @@ premadeClose.MouseButton1Click:Connect(function()
 	})
 	task.wait(0.15)
 	premadeWindow.Visible = false
+	premadeBlocker.Visible = false
 end)
 
 local premadeContentBg = Instance.new('Frame')
@@ -6347,6 +6359,7 @@ premadeChildren.ScrollBarThickness = 3
 premadeChildren.ScrollBarImageColor3 = Color3.fromRGB(5, 134, 105)
 premadeChildren.ScrollBarImageTransparency = 0.5
 premadeChildren.CanvasSize = UDim2.new()
+premadeChildren.AutomaticCanvasSize = Enum.AutomaticSize.Y
 premadeChildren.Parent = premadeContentBg
 local premadeList = Instance.new('UIListLayout')
 premadeList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -6858,7 +6871,12 @@ local function refreshPremadeWindow()
 		end)
 	end
 	
-	premadeChildren.CanvasSize = UDim2.fromOffset(380, premadeList.AbsoluteContentSize.Y)
+	task.spawn(function()
+		runService.Heartbeat:Wait()
+		runService.Heartbeat:Wait()
+		task.wait(0.05)          
+		premadeChildren.CanvasSize = UDim2.fromOffset(380, premadeList.AbsoluteContentSize.Y)
+	end)
 end
 
 profilesCategory:CreateButton({
@@ -6871,10 +6889,12 @@ profilesCategory:CreateButton({
 			})
 			task.wait(0.15)
 			premadeWindow.Visible = false
+			premadeBlocker.Visible = false
 		else
 			refreshPremadeWindow()
 			premadeWindow.Position = UDim2.new(0.5, -340, 0.5, -260)
 			premadeWindow.Size = UDim2.fromOffset(640, 440)
+			premadeBlocker.Visible = true
 			premadeWindow.Visible = true
 			tween:Tween(premadeWindow, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 				Position = UDim2.new(0.5, -340, 0.5, -240),
