@@ -57,7 +57,7 @@ end
 
 local function finishLoading()
 	vape.Init = nil
-	vape:Load()
+	vape:Load(false, shared.VapeCurrentProfile)
 	task.spawn(function()
 		repeat
 			vape:Save()
@@ -66,32 +66,34 @@ local function finishLoading()
 	end)
 
 	local teleportedServers
-	vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
-		if (not teleportedServers) and (not shared.VapeIndependent) then
-			teleportedServers = true
-			local teleportScript = [[
-				shared.vapereload = true
-				if shared.VapeDeveloper then
-					loadstring(readfile('newvape/loader.lua'), 'loader')()
-				else
-					loadstring(game:HttpGet('https://raw.githubusercontent.com/poopparty/poopparty/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true), 'loader')()
-				end
-			]]
-			if shared.VapeDeveloper then
-				teleportScript = 'shared.VapeDeveloper = true\n'..teleportScript
-			end
-			if shared.VapeCustomProfile then
-				teleportScript = 'shared.VapeCustomProfile = "'..shared.VapeCustomProfile..'"\n'..teleportScript
-			end
-			vape:Save()
-			queue_on_teleport(teleportScript)
-		end
-	end))
+    vape:Clean(playersService.LocalPlayer.OnTeleport:Connect(function()
+        if (not teleportedServers) and (not shared.VapeIndependent) and vape.AutoTeleport.Enabled then
+            teleportedServers = true
+            local teleportScript = [[
+                shared.vapereload = true
+                if shared.VapeDeveloper then
+                    loadstring(readfile('newvape/loader.lua'), 'loader')()
+                else
+                    loadstring(game:HttpGet('https://raw.githubusercontent.com/poopparty/poopparty/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true), 'loader')()
+                end
+            ]]
+            if shared.VapeDeveloper then
+                teleportScript = 'shared.VapeDeveloper = true\n'..teleportScript
+            end
+            if shared.VapeCustomProfile then
+                teleportScript = 'shared.VapeCustomProfile = "'..shared.VapeCustomProfile..'"\n'..teleportScript
+            end
+            if shared.VapeCurrentProfile then
+                teleportScript = 'shared.VapeCurrentProfile = "'..shared.VapeCurrentProfile..'"\n'..teleportScript
+            end
+            vape:Save()
+            queue_on_teleport(teleportScript)
+        end
+    end))
 
     if not shared.vapereload then
         if not vape.Categories then return end
         if vape.Categories.Main.Options['GUI bind indicator'].Enabled then
-            local name = shared.ValidatedUsername and ('wsg, ' .. shared.ValidatedUsername .. ' :D ') or 'welcome '
             vape:CreateNotification('[AEROV4] Finished Loading', name .. (vape.VapeButton and 'Press the button in the top right to open GUI' or 'Press ' .. table.concat(vape.Keybind, ' + '):upper() .. ' to open GUI'), 5)
         end
     end
