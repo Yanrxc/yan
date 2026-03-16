@@ -1,5 +1,4 @@
 --This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
---This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 local run = function(func)
     local ok, err = pcall(func)
     if not ok then
@@ -5588,6 +5587,7 @@ run(function()
     local SyncHits
     local lastAttackTime = 0
     local lastManualSwing = 0
+    local lastLegitSwingAttack = 0
     local lastSwingServerTime = 0
     local lastSwingServerTimeDelta = 0
     local SophiaCheck
@@ -5788,11 +5788,12 @@ run(function()
             if store.hand.toolType ~= 'sword' or bedwars.DaoController.chargingMaid then return false end
         end
 
-		if LegitAura.Enabled then
-			local lastSwing = bedwars.SwordController.lastSwing or 0
-			local swingDelay = SwingTime.Enabled and SwingTimeSlider.Value or 0.2
-			if (tick() - lastSwing) > swingDelay then return false end
-		end
+        if LegitAura.Enabled then
+            local swingTime = bedwars.SwordController.lastSwing or 0
+            local window = (SwingTime and SwingTime.Enabled and SwingTimeSlider and SwingTimeSlider.Value or 0.5)
+            if (tick() - swingTime) > window then return false end
+            if swingTime <= lastLegitSwingAttack then return false end
+        end
 
         if SwingTime.Enabled then
             local swingSpeed = SwingTimeSlider.Value
@@ -5845,6 +5846,8 @@ run(function()
                 lastSwingServerTimeDelta = 0
                 lastAttackTime = 0
                 swingCooldown = 0
+                local lastRangeCircleUpdate = 0
+                local cachedSwordTool, cachedIsClaw = nil, false
                 resetSwordCooldown() 
                 lastTargetTime = 0 
                 continueSwingCount = 0
@@ -5926,8 +5929,12 @@ run(function()
                     end
                     
                     pcall(function()
-                        if entitylib.isAlive and entitylib.character.HumanoidRootPart then
-                            TweenService:Create(RangeCirclePart, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Position = entitylib.character.HumanoidRootPart.Position - Vector3.new(0, entitylib.character.Humanoid.HipHeight, 0)}):Play()
+                        if entitylib.isAlive and entitylib.character.HumanoidRootPart and RangeCirclePart then
+                            local now = tick()
+                            if (now - lastRangeCircleUpdate) >= 0.1 then
+                                lastRangeCircleUpdate = now
+                                TweenService:Create(RangeCirclePart, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Position = entitylib.character.HumanoidRootPart.Position - Vector3.new(0, entitylib.character.Humanoid.HipHeight, 0)}):Play()
+                            end
                         end
                     end)
 
@@ -5938,18 +5945,21 @@ run(function()
 
                     if sword and canAttack then
                         if sigridcheck and entitylib.isAlive and lplr.Character:FindFirstChild("elk") then return end
-                        local isClaw = string.find(string.lower(tostring(sword and sword.itemType or "")), "summoner_claw")
+                        if sword.tool ~= cachedSwordTool then
+                            cachedSwordTool = sword.tool
+                            cachedIsClaw = string.find(string.lower(tostring(sword.itemType or "")), "summoner_claw") ~= nil
+                        end
+                        local isClaw = cachedIsClaw
                         
                         local selfpos = entitylib.character.RootPart.Position
                         local localfacing = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
                         local maxAngle = math.rad(AngleSlider.Value) / 2
                         local allSwingTargets = {}
-                        local allAttackTargets = {}
 
                         if Targets.Players.Enabled then
                             local playerTargets = entitylib.AllPosition({
                                 Range = SwingRange.Value,
-                                Wallcheck = false,
+                                Wallcheck = Targets.Walls.Enabled or nil,
                                 Part = 'RootPart',
                                 Players = true,
                                 NPCs = false,
@@ -5964,7 +5974,7 @@ run(function()
                         if Targets.NPCs.Enabled then
                             local npcTargets = entitylib.AllPosition({
                                 Range = SwingRange.Value,
-                                Wallcheck = false,
+                                Wallcheck = Targets.Walls.Enabled or nil,
                                 Part = 'RootPart',
                                 Players = false,
                                 NPCs = true,
@@ -5996,59 +6006,12 @@ run(function()
                             end)
                         end
 
+                        -- reuse same scan for both swing and attack targets (same range, no need to scan twice)
+                        local allAttackTargets = allSwingTargets
+
                         local swingPlrs = {}
                         for i = 1, math.min(#allSwingTargets, MaxTargets.Value) do
                             table.insert(swingPlrs, allSwingTargets[i].entity)
-                        end
-
-                        if Targets.Players.Enabled then
-                            local playerTargets = entitylib.AllPosition({
-                                Range = SwingRange.Value,
-                                Wallcheck = Targets.Walls.Enabled or nil,
-                                Part = 'RootPart',
-                                Players = true,
-                                NPCs = false,
-                                Limit = MaxTargets.Value,
-                                Sort = sortmethods[Sort.Value]
-                            })
-                            for _, v in playerTargets do
-                                table.insert(allAttackTargets, {entity = v, isPlayer = true})
-                            end
-                        end
-
-                        if Targets.NPCs.Enabled then
-                            local npcTargets = entitylib.AllPosition({
-                                Range = SwingRange.Value,
-                                Wallcheck = Targets.Walls.Enabled or nil,
-                                Part = 'RootPart',
-                                Players = false,
-                                NPCs = true,
-                                Limit = MaxTargets.Value,
-                                Sort = sortmethods[Sort.Value]
-                            })
-                            for _, v in npcTargets do
-                                table.insert(allAttackTargets, {entity = v, isPlayer = false})
-                            end
-                        end
-
-                        if TargetPriority.Value == 'Players First' then
-                            table.sort(allAttackTargets, function(a, b)
-                                if a.isPlayer ~= b.isPlayer then
-                                    return a.isPlayer
-                                end
-                                return (a.entity.RootPart.Position - selfpos).Magnitude < (b.entity.RootPart.Position - selfpos).Magnitude
-                            end)
-                        elseif TargetPriority.Value == 'NPCs First' then
-                            table.sort(allAttackTargets, function(a, b)
-                                if a.isPlayer ~= b.isPlayer then
-                                    return not a.isPlayer
-                                end
-                                return (a.entity.RootPart.Position - selfpos).Magnitude < (b.entity.RootPart.Position - selfpos).Magnitude
-                            end)
-                        else
-                            table.sort(allAttackTargets, function(a, b)
-                                return (a.entity.RootPart.Position - selfpos).Magnitude < (b.entity.RootPart.Position - selfpos).Magnitude
-                            end)
                         end
 
                         local attackPlrs = {}
@@ -6229,6 +6192,9 @@ run(function()
                                             attackData.validate.raycast.cursorDirection = attackData.validate.raycast.cursorDirection or {value = dir}
                                             
                                             FireAttackRemote(attackData)
+                                            if LegitAura and LegitAura.Enabled then
+                                                lastLegitSwingAttack = bedwars.SwordController.lastSwing or 0
+                                            end
                                         end
                                     end
                                 end
@@ -6719,6 +6685,7 @@ run(function()
 	local AnimationTween
 	local Limit
 	local LegitAura = {}
+	local lastLegitSwingAttack = 0
 	local Particles, Boxes = {}, {}
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local AttackRemote = {FireServer = function() end}
@@ -6749,8 +6716,10 @@ run(function()
 		end
 
 		if LegitAura.Enabled then
-			local lastSwing = bedwars.SwordController.lastSwing or 0
-			if (tick() - lastSwing) > ChargeTime.Value then return false end
+			local swingTime = bedwars.SwordController.lastSwing or 0
+			local window = math.max(ChargeTime and ChargeTime.Value or 0.42, 0.11)
+			if (tick() - swingTime) > window then return false end
+			if swingTime <= lastLegitSwingAttack then return false end
 		end
 
 		return sword, meta
@@ -6908,6 +6877,9 @@ run(function()
 											selfPosition = {value = pos}
 										}
 									})
+									if LegitAura.Enabled then
+										lastLegitSwingAttack = bedwars.SwordController.lastSwing or 0
+									end
 								end
 							end
 						end
@@ -8852,6 +8824,10 @@ run(function()
 					if source and proj and (proj == 'arrow' or bedwars.ProjectileMeta[proj] and bedwars.ProjectileMeta[proj].combat) and not _G.autoShootLock then
 						task.spawn(function()
 							if not hasArrows() then
+								return
+							end
+							
+							if not isSword() then
 								return
 							end
 							
