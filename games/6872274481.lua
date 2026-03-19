@@ -16553,11 +16553,10 @@ run(function()
 		end)
 
 		for _, v in tempSortTable do
-			if v.Name == 'iron_ore_mesh_block' then
-				return doBreak(v)
-			end
 			if not bedwars.BlockController:isBlockBreakable({blockPosition = v.Position / 3}, lplr) then continue end
 			if not passesChecks(v) then continue end
+			local placedBy = v:GetAttribute('PlacedByUserId')
+			if placedBy and isSameTeam(placedBy) then continue end
 			return doBreak(v)
 		end
 
@@ -16647,8 +16646,7 @@ run(function()
 		if not closestBed then return false end
 		local blocker = findPathBlock(closestBed.Position, localPosition)
 
-		if blocker then
-			if not passesChecks(blocker) then return false end
+		if blocker and passesChecks(blocker) then
 			return doBreak(blocker)
 		else
 			if PathToBed.Enabled then
