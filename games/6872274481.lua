@@ -482,6 +482,8 @@ local sortmethods = {
 		return a.Entity.Health < b.Entity.Health
 	end,
 	Angle = function(a, b)
+		if not a.Entity.RootPart then return false end
+		if not b.Entity.RootPart then return true end
 		local selfrootpos = entitylib.character.RootPart.Position
 		local localfacing = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
 		local angle = math.acos(localfacing:Dot(((a.Entity.RootPart.Position - selfrootpos) * Vector3.new(1, 0, 1)).Unit))
@@ -489,6 +491,8 @@ local sortmethods = {
 		return angle < angle2
 	end,
 	Distance = function(a, b)
+		if not a.Entity.RootPart then return false end
+		if not b.Entity.RootPart then return true end
 		local selfpos = entitylib.character.RootPart.Position
 		local distA = (a.Entity.RootPart.Position - selfpos).Magnitude
 		local distB = (b.Entity.RootPart.Position - selfpos).Magnitude
@@ -1863,6 +1867,7 @@ run(function()
 	local function isTargetStillValid(ent)
 		if not ent or not ent.RootPart then return false end
 		if not ent.Character or not ent.Character.Parent then return false end
+		if (ent.Health or 0) <= 0 then return false end
 		local dist = (ent.RootPart.Position - entitylib.character.RootPart.Position).Magnitude
 		if dist > Distance.Value then return false end
 		return true
@@ -1945,7 +1950,7 @@ run(function()
 						end
 					end
 
-					if not ent or not ent.RootPart then
+					if not ent or not ent.RootPart or (ent.Health or 0) <= 0 then
 						if PriorityMode and PriorityMode.Enabled then lockedTarget = nil end
 						return
 					end
@@ -36276,6 +36281,6 @@ run(function()
 				end
 			end
 		end,
-		Tooltip = 'Keeps Krystal momentum at 100 instantly and permanently'
+		Tooltip = 'infifiiffififdjafd'
 	})
 end)
