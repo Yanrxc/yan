@@ -1,3 +1,4 @@
+--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 --[[
 	Prediction Library
 	Source: https://devforum.roblox.com/t/predict-projectile-ballistics-including-gravity-and-motion/1842434
@@ -188,7 +189,7 @@ end
 
 function module.SolveTrajectory(origin, projectileSpeed, gravity, targetPos, targetVelocity, playerGravity, playerHeight, playerJump, params)
 	local disp = targetPos - origin
-	local p, q, r = targetVelocity.X, targetVelocity.Y, targetVelocity.Z
+	local p, q, r = targetVelocity.X, 0, targetVelocity.Z
 	local h, j, k = disp.X, disp.Y, disp.Z
 	local l = -.5 * gravity
 	--attemped gravity calculation, may return to it in the future.
