@@ -470,6 +470,8 @@ end
 
 local sortmethods = {
 	Damage = function(a, b)
+		if not a.Entity or not a.Entity.Character then return false end
+		if not b.Entity or not b.Entity.Character then return true end
 		return a.Entity.Character:GetAttribute('LastDamageTakenTime') < b.Entity.Character:GetAttribute('LastDamageTakenTime')
 	end,
 	Threat = function(a, b)
@@ -499,6 +501,18 @@ local sortmethods = {
 		local distA = (a.Entity.RootPart.Position - selfpos).Magnitude
 		local distB = (b.Entity.RootPart.Position - selfpos).Magnitude
 		return distA < distB
+	end,
+	Cursor = function(a, b)
+		if not a.Entity or not a.Entity.RootPart then return false end
+		if not b.Entity or not b.Entity.RootPart then return true end
+		local camera = workspace.CurrentCamera
+		local mousePos = game:GetService('UserInputService'):GetMouseLocation()
+		local function screenDist(ent)
+			local screenPos, onScreen = camera:WorldToScreenPoint(ent.RootPart.Position)
+			if not onScreen then return math.huge end
+			return (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+		end
+		return screenDist(a.Entity) < screenDist(b.Entity)
 	end,
 	Forest = function(a, b)
 		if not a.Entity then return false end
@@ -5168,10 +5182,6 @@ run(function()
     local lastSwingServerTime = 0
     local lastSwingServerTimeDelta = 0
     local SophiaCheck
-    local isFrozen = false
-    local frozenStacks = 0
-    local frozenCheckConnection
-    local FROZEN_THRESHOLD = 10
     local SwingTime
     local SwingTimeSlider
     local swingCooldown = 0
@@ -5188,131 +5198,25 @@ run(function()
     local lastCustomHitTime = 0
     local AirHit
     local AirHitsChance
-    
+    local FROZEN_THRESHOLD = 10
+    local FastHits
+    local AutoShootInterval
+    local AutoShootSwitchSpeed
+    local AutoShootWaitDelay
+    local FirstPersonCheck
+    local autoShootEnabled = false
+    local lastAutoShootTime = 0
+    local autoShootLoop = nil
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    local cachedBows = {}
+    local cachedSwordSlot = nil
+    local cachedHasArrows = false
+    local lastInventoryUpdate = 0
+    local INVENTORY_CACHE_TIME = 0.5
+
     task.spawn(function()
         AttackRemote = bedwars.Client:Get(remotes.AttackEntity)
     end)
-
-    local function checkFrozenStatus()
-        if not entitylib.isAlive then
-            isFrozen = false
-            frozenStacks = 0
-            return
-        end
-        
-        local char = entitylib.character.Character
-        frozenStacks = 0
-        isFrozen = false
-        
-        local coldStacks = char:GetAttribute("ColdStacks") or char:GetAttribute("FrostStacks") or char:GetAttribute("FreezeStacks")
-        if coldStacks then
-            frozenStacks = coldStacks
-            isFrozen = frozenStacks >= FROZEN_THRESHOLD
-            return
-        end
-        
-        local statusEffects = char:GetAttribute("StatusEffects") or {}
-        if type(statusEffects) == "table" then
-            for effectName, stackCount in pairs(statusEffects) do
-                local nameLower = tostring(effectName):lower()
-                if nameLower:find("cold") or nameLower:find("frost") or nameLower:find("freeze") then
-                    if type(stackCount) == "number" then
-                        frozenStacks = stackCount
-                        isFrozen = stackCount >= FROZEN_THRESHOLD
-                        return
-                    elseif stackCount then
-                        frozenStacks = FROZEN_THRESHOLD
-                        isFrozen = true
-                        return
-                    end
-                end
-            end
-        end
-        
-        local hasIceBlock = char:FindFirstChild("IceBlock") or char:FindFirstChild("FrozenBlock") or char:FindFirstChild("IceShell")
-        local hasFullIceParticles = 0
-        
-        for _, child in pairs(char:GetDescendants()) do
-            if child:IsA("ParticleEmitter") then
-                local nameLower = child.Name:lower()
-                if nameLower:find("ice") or nameLower:find("frost") or nameLower:find("snow") then
-                    hasFullIceParticles = hasFullIceParticles + 1
-                end
-            end
-        end
-        
-        if hasIceBlock or hasFullIceParticles >= 5 then
-            frozenStacks = FROZEN_THRESHOLD
-            isFrozen = true
-            return
-        end
-        
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            if humanoid.WalkSpeed <= 2 then
-                frozenStacks = FROZEN_THRESHOLD
-                isFrozen = true
-                return
-            elseif humanoid.WalkSpeed < 10 then
-                frozenStacks = math.floor(((16 - humanoid.WalkSpeed) / 14) * 10)
-                frozenStacks = math.clamp(frozenStacks, 1, 10)
-                isFrozen = frozenStacks >= FROZEN_THRESHOLD
-                return
-            end
-        end
-        
-        local frostEffects = 0
-        for _, child in pairs(char:GetDescendants()) do
-            if child:IsA("BasePart") then
-                if child.Material == Enum.Material.Ice or child.Material == Enum.Material.Snow then
-                    frostEffects = frostEffects + 2
-                end
-                if child.Color.r < 0.4 and child.Color.b > 0.7 then
-                    frostEffects = frostEffects + 1
-                end
-            elseif child:IsA("Decal") and (child.Texture:lower():find("ice") or child.Texture:lower():find("frost")) then
-                frostEffects = frostEffects + 3
-            end
-        end
-        
-        if frostEffects >= 8 then
-            frozenStacks = 9
-            isFrozen = false
-        elseif frostEffects >= 10 then
-            frozenStacks = FROZEN_THRESHOLD
-            isFrozen = true
-        else
-            frozenStacks = math.floor(frostEffects / 2)
-        end
-    end
-
-    local function setupStackMonitoring()
-        if not frozenCheckConnection then
-            frozenCheckConnection = runService.Heartbeat:Connect(function()
-                if not entitylib.isAlive then
-                    frozenStacks = 0
-                    isFrozen = false
-                    return
-                end
-                
-                local char = entitylib.character.Character
-                local previousStacks = frozenStacks
-                
-                local newStacks = char:GetAttribute("ColdStacks") or 
-                                 char:GetAttribute("FrostStacks") or 
-                                 char:GetAttribute("FreezeStacks") or 
-                                 char:GetAttribute("FROZEN_STACKS") or 0
-                
-                if newStacks > 0 then
-                    frozenStacks = newStacks
-                    isFrozen = frozenStacks >= FROZEN_THRESHOLD
-                    return
-                end
-                
-                checkFrozenStatus()
-            end)
-        end
-    end
 
     local function optimizeHitData(selfpos, targetpos, delta)
         local direction = (targetpos - selfpos).Unit
@@ -5340,23 +5244,22 @@ run(function()
     end
 
     local function getOptimizedAttackTiming()
-        local currentTime = tick()
         return true
     end
 
-	local function canHitWithCustomReg()
-		if not CustomHitReg or not CustomHitReg.Enabled then return true end
-		if not CustomHitRegSlider then return true end
-		local currentTime = tick()
-		local targetHitsPerSec = CustomHitRegSlider.Value
-		if targetHitsPerSec >= 35 then return true end
-		local delayBetweenHits = 1 / targetHitsPerSec
-		if currentTime - lastCustomHitTime >= delayBetweenHits then
-			lastCustomHitTime = currentTime
-			return true
-		end
-		return false
-	end
+    local function canHitWithCustomReg()
+        if not CustomHitReg or not CustomHitReg.Enabled then return true end
+        if not CustomHitRegSlider then return true end
+        local currentTime = tick()
+        local targetHitsPerSec = CustomHitRegSlider.Value
+        if targetHitsPerSec >= 35 then return true end
+        local delayBetweenHits = 1 / targetHitsPerSec
+        if currentTime - lastCustomHitTime >= delayBetweenHits then
+            lastCustomHitTime = currentTime
+            return true
+        end
+        return false
+    end
 
     local function FireAttackRemote(attackTable, ...)
         if not AttackRemote then return end
@@ -5401,9 +5304,6 @@ run(function()
         return AttackRemote:SendToServer(attackTable, ...)
     end
 
-    local lastSwingServerTime = 0
-    local lastSwingServerTimeDelta = 0
-
     local function createRangeCircle()
         local suc, err = pcall(function()
             if (not shared.CheatEngineMode) then
@@ -5440,9 +5340,7 @@ run(function()
 
     local function getAttackData()
         if SophiaCheck and SophiaCheck.Enabled then
-            checkFrozenStatus()
-            
-            if frozenStacks >= FROZEN_THRESHOLD then
+            if isFrozen(nil, FROZEN_THRESHOLD) then
                 return false
             end
         end
@@ -5508,18 +5406,119 @@ run(function()
         return false
     end
 
-    local preserveSwordIcon = false
+    local function leftClick()
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end)
+    end
 
+    local function updateInventoryCache()
+        local now = tick()
+        if now - lastInventoryUpdate < INVENTORY_CACHE_TIME then
+            return
+        end
+        lastInventoryUpdate = now
+        
+        local arrowItem = getItem('arrow')
+        cachedHasArrows = arrowItem and arrowItem.amount > 0
+        
+        table.clear(cachedBows)
+        cachedSwordSlot = nil
+        
+        local hotbar = store.inventory.hotbar
+        for i = 1, #hotbar do
+            local v = hotbar[i]
+            if v.item and v.item.itemType then
+                local itemMeta = bedwars.ItemMeta[v.item.itemType]
+                if itemMeta then
+                    if itemMeta.projectileSource then
+                        local projectileSource = itemMeta.projectileSource
+                        if projectileSource.ammoItemTypes and table.find(projectileSource.ammoItemTypes, 'arrow') then
+                            table.insert(cachedBows, i - 1)
+                        end
+                    end
+                    if itemMeta.sword and not cachedSwordSlot then
+                        cachedSwordSlot = i - 1
+                    end
+                end
+            end
+        end
+    end
+
+    local function hasArrows()
+        updateInventoryCache()
+        return cachedHasArrows
+    end
+
+    local function getBows()
+        updateInventoryCache()
+        return cachedBows
+    end
+
+    local function getSwordSlot()
+        updateInventoryCache()
+        return cachedSwordSlot
+    end
+
+    local function doFastHits()
+        if not FastHits.Enabled then return end
+        if not Attacking then return end             
+        if not store.KillauraTarget then return end 
+        if not hasArrows() then return end
+        
+        if FirstPersonCheck.Enabled and not isFirstPerson() then return end
+        
+        local currentTime = tick()
+        if (currentTime - lastAutoShootTime) < AutoShootInterval.Value then
+            return
+        end
+        
+        local bows = getBows()
+        if #bows == 0 then return end
+        
+        lastAutoShootTime = currentTime
+        local originalSlot = store.inventory.hotbarSlot
+        
+        for i = 1, #bows do
+            local bowSlot = bows[i]
+            if hotbarSwitch(bowSlot) then
+                task.wait(AutoShootSwitchSpeed.Value)
+                leftClick()
+                task.wait(0.05)
+            end
+        end
+        
+        local swordSlot = getSwordSlot()
+        if swordSlot then
+            hotbarSwitch(swordSlot)
+        else
+            hotbarSwitch(originalSlot)
+        end
+    end
+
+    local function startAutoShootLoop()
+        if autoShootLoop then return end
+        autoShootLoop = task.spawn(function()
+            while Killaura.Enabled and FastHits.Enabled do
+                doFastHits()
+                task.wait(0.05)
+            end
+            autoShootLoop = nil
+        end)
+    end
+
+    local function stopAutoShootLoop()
+        if autoShootLoop then
+            task.cancel(autoShootLoop)
+            autoShootLoop = nil
+        end
+    end
     Killaura = vape.Categories.Blatant:CreateModule({
         Name = 'Killaura',
         Function = function(callback)
-            
-            if callback then
-                if SophiaCheck and SophiaCheck.Enabled then
-                    checkFrozenStatus()
-                    setupStackMonitoring()
-                end
-                
+            if callback then    
                 lastSwingServerTime = Workspace:GetServerTimeNow()
                 lastSwingServerTimeDelta = 0
                 lastAttackTime = 0
@@ -5594,11 +5593,13 @@ run(function()
                     end)
                 end
 
+                if FastHits.Enabled then
+                    startAutoShootLoop()
+                end
+
                 repeat
                     if SophiaCheck and SophiaCheck.Enabled then
-                        checkFrozenStatus()
-                        
-                        if isFrozen then
+                        if isFrozen(nil, FROZEN_THRESHOLD) then
                             Attacking = false
                             store.KillauraTarget = nil
                             task.wait(0.3)
@@ -5792,7 +5793,9 @@ run(function()
                                         Attacking = true
                                         store.KillauraTarget = v
                                         if not isClaw then
-                                            if not Swing.Enabled and AnimDelay <= tick() and not LegitAura.Enabled then
+                                            local inLegitRange = delta.Magnitude < 14.4
+                                            local allowSwingAnim = not Swing.Enabled and AnimDelay <= tick() and (not LegitAura.Enabled or (inLegitRange and (tick() - swingCooldown) >= math.max(SwingTime.Enabled and SwingTimeSlider.Value or 0.25, 0.11)))
+                                            if allowSwingAnim then
                                                 local swingSpeed = 0.25
                                                 if SwingTime.Enabled then
                                                     swingSpeed = math.max(SwingTimeSlider.Value, 0.11)
@@ -5813,7 +5816,7 @@ run(function()
                                     end
 
                                     local canHit = delta.Magnitude <= AttackRange.Value
-                                    local extendedRangeCheck = delta.Magnitude <= (AttackRange.Value + 5) 
+                                    local extendedRangeCheck = delta.Magnitude <= (AttackRange.Value + 0.8) 
 
                                     if not canHit and not extendedRangeCheck then continue end
 
@@ -5831,12 +5834,12 @@ run(function()
 
                                     if SyncHits.Enabled then
                                         local swingSpeed = SwingTime.Enabled and SwingTimeSlider.Value or (meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or 0.42)
-										local timeSinceLastSwing = tick() - swingCooldown
-										local requiredDelay = math.max(swingSpeed * 0.5, 0.05)
-										
-										if timeSinceLastSwing < requiredDelay then 
-											continue 
-										end
+                                        local timeSinceLastSwing = tick() - swingCooldown
+                                        local requiredDelay = math.max(swingSpeed * 0.5, 0.05)
+                                        
+                                        if timeSinceLastSwing < requiredDelay then 
+                                            continue 
+                                        end
                                     end
 
                                     local actualRoot = v.Character.PrimaryPart
@@ -5948,16 +5951,6 @@ run(function()
                     task.wait(1 / UpdateRate.Value)
                 until not Killaura.Enabled
             else
-                if frozenCheckConnection then
-                    frozenCheckConnection:Disconnect()
-                    frozenCheckConnection = nil
-                end
-                frozenStacks = 0
-                isFrozen = false
-                
-                lastTargetTime = 0
-                continueSwingCount = 0
-                
                 store.KillauraTarget = nil
                 for _, v in Boxes do
                     v.Adornee = nil
@@ -5978,6 +5971,7 @@ run(function()
                     AnimTween:Play()
                 end
                 if RangeCirclePart ~= nil then RangeCirclePart:Destroy() end
+                stopAutoShootLoop()
             end
         end,
         Tooltip = 'Attack players around you\nwithout aiming at them.'
@@ -6321,6 +6315,9 @@ run(function()
             if AirHitsChance then
                 AirHitsChance.Object.Visible = callback
             end
+            if Killaura.Enabled and callback and AirHitsChance and AirHitsChance.Object then
+                AirHitsChance.Object.Visible = true
+            end
         end
     })
     AirHitsChance = Killaura:CreateSlider({
@@ -6335,24 +6332,77 @@ run(function()
     })
     SophiaCheck = Killaura:CreateToggle({
         Name = 'Sophia Check',
-        Tooltip = 'Stops Killaura ONLY when completely frozen',
+        Tooltip = 'Stops Killaura ONLY when completely frozen (uses global isFrozen)',
         Function = function(callback)
-            if callback then
-                if Killaura.Enabled then
-                    setupStackMonitoring()
-                    checkFrozenStatus()
-                end
-            else
-                if frozenCheckConnection then
-                    frozenCheckConnection:Disconnect()
-                    frozenCheckConnection = nil
-                end
-                frozenStacks = 0
-                isFrozen = false
-            end
         end,
         Default = false
     })
+
+    FastHits = Killaura:CreateToggle({
+        Name = 'Fast Hits',
+        Tooltip = 'Automatically switches to bows/crossbows and shoots while Killaura is attacking',
+        Default = false,
+        Function = function(callback)
+            if AutoShootInterval then AutoShootInterval.Object.Visible = callback end
+            if AutoShootSwitchSpeed then AutoShootSwitchSpeed.Object.Visible = callback end
+            if AutoShootWaitDelay then AutoShootWaitDelay.Object.Visible = callback end
+            if FirstPersonCheck then FirstPersonCheck.Object.Visible = callback end
+
+            if callback and Killaura.Enabled then
+                startAutoShootLoop()
+            else
+                stopAutoShootLoop()
+            end
+        end
+    })
+
+    AutoShootInterval = Killaura:CreateSlider({
+        Name = 'Shoot Interval',
+        Min = 0.1,
+        Max = 3,
+        Default = 0.5,
+        Decimal = 10,
+        Suffix = function(val)
+            return val == 1 and 'second' or 'seconds'
+        end,
+        Tooltip = 'How often to auto-shoot bows (when Killaura is attacking)',
+        Visible = false
+    })
+
+    AutoShootSwitchSpeed = Killaura:CreateSlider({
+        Name = 'Switch Delay',
+        Min = 0,
+        Max = 0.2,
+        Default = 0.05,
+        Decimal = 100,
+        Suffix = 's',
+        Tooltip = 'Delay between switching and shooting (lower = faster)',
+        Visible = false
+    })
+
+    AutoShootWaitDelay = Killaura:CreateSlider({
+        Name = 'Wait Delay',
+        Min = 0,
+        Max = 1,
+        Default = 0,
+        Decimal = 100,
+        Suffix = 's',
+        Tooltip = 'Delay before shooting (helps prevent ghosting)',
+        Visible = false
+    })
+
+    FirstPersonCheck = Killaura:CreateToggle({
+        Name = 'First Person Only',
+        Default = false,
+        Tooltip = 'Only works in first person mode',
+        Visible = false
+    })
+
+    task.defer(function()
+        if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Object then
+            AirHitsChance.Object.Visible = true
+        end
+    end)
 end)
 
 -- granddad killaura
@@ -6542,7 +6592,9 @@ run(function()
 								if not Attacking then
 									Attacking = true
 									store.KillauraTarget = v
-									if not (Swing and Swing.Enabled) and AnimDelay < tick() and not (LegitAura and LegitAura.Enabled) then
+									local inLegitRange = delta.Magnitude < 14.4
+									local allowSwingAnim = not (Swing and Swing.Enabled) and AnimDelay < tick() and (not (LegitAura and LegitAura.Enabled) or (inLegitRange and (tick() - swingCooldown) >= math.max(ChargeTime.Value, 0.11)))
+									if allowSwingAnim then
 										AnimDelay = tick() + (meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or math.max(ChargeTime.Value, 0.11))
 										bedwars.SwordController:playSwordEffect(meta, false)
 										if meta.displayName:find(' Scythe') then
@@ -7541,7 +7593,12 @@ run(function()
 					end
 
 					local targetBodyPart = nil
-					if TargetPart.Value == 'RootPart' then
+					if TargetPart.Value == 'Dynamic' then
+						local tool = store.hand and store.hand.tool
+						local itemType = tostring(tool and tool.Name or ""):lower()
+						local isHH = itemType:find("headhunter")
+						targetBodyPart = isHH and (plr.Character:FindFirstChild("Head") or plr.RootPart) or plr.RootPart
+					elseif TargetPart.Value == 'RootPart' then
 						targetBodyPart = plr.RootPart
 					elseif TargetPart.Value == 'Head' then
 						targetBodyPart = plr.Head or plr.RootPart
@@ -7585,12 +7642,12 @@ run(function()
 					local gravity = (meta.gravitationalAcceleration or 196.2) * projmeta.gravityMultiplier
 					local projSpeed = (meta.launchVelocity or 100)
 					local offsetpos = pos + (projmeta.projectile == 'owl_projectile' and Vector3.zero or projmeta.fromPositionOffset)
-					local balloons = plr.Character:GetAttribute('InflatedBalloons')
+					local balloons = plr.Character and plr.Character:GetAttribute('InflatedBalloons')
 					local playerGravity = workspace.Gravity
 					if balloons and balloons > 0 then
 						playerGravity = workspace.Gravity * (1 - (balloons >= 4 and 1.2 or balloons >= 3 and 1 or 0.975))
 					end
-					if plr.Character.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
+					if plr.Character and plr.Character.PrimaryPart and plr.Character.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
 						playerGravity = 6
 					end
 					if plr.Player and plr.Player:GetAttribute('IsOwlTarget') then
@@ -7663,7 +7720,7 @@ run(function()
 
 	TargetPart = ProjectileAimbot:CreateDropdown({
 		Name = 'Part',
-		List = {'RootPart', 'Head', 'Closest', 'Randomize'},
+		List = {'Dynamic', 'RootPart', 'Head', 'Closest', 'Randomize'},
 		Default = 'RootPart',
 		Tooltip = 'Select which body part to aim at',
 		Function = function()
@@ -7674,7 +7731,7 @@ run(function()
 
 	SortMethod = ProjectileAimbot:CreateDropdown({
 		Name = 'Sort Method',
-		List = {'Distance', 'Damage', 'Threat', 'Kit', 'Health', 'Angle', 'Forest'},
+		List = {'Distance', 'Damage', 'Threat', 'Kit', 'Health', 'Angle', 'Cursor', 'Forest'},
 		Default = 'Distance',
 		Tooltip = 'Prioritize targets when multiple are in range'
 	})
@@ -7743,7 +7800,9 @@ run(function()
 		RandomHeadPercent.Object.Visible = vis
 		RandomTorsoPercent.Object.Visible = vis
 	end
-	TargetPart:AddHook(updateRandomizeVisibility)
+	if TargetPart.AddHook then
+		TargetPart:AddHook(updateRandomizeVisibility)
+	end
 	updateRandomizeVisibility()
 end)
 
@@ -8121,7 +8180,8 @@ run(function()
 	local function getProjectiles()
 		local items = {}
 		for _, item in store.inventory.inventory.items do
-			local proj = bedwars.ItemMeta[item.itemType].projectileSource
+			local _itemMeta = bedwars.ItemMeta[item.itemType]
+			local proj = _itemMeta and _itemMeta.projectileSource
 			local ammo = proj and getAmmo(proj)
 			if ammo and table.find(List.ListEnabled, ammo) then
 				table.insert(items, {
@@ -24917,7 +24977,7 @@ run(function()
 
     SortMethod = Zeno:CreateDropdown({
         Name = 'Sort Method',
-        List = {'Distance', 'Damage', 'Threat', 'Kit', 'Health', 'Angle', 'Forest'},
+        List = {'Distance', 'Damage', 'Threat', 'Kit', 'Health', 'Angle', 'Cursor', 'Forest'},
         Default = 'Distance',
         Tooltip = 'How to prioritize targets'
     })
@@ -35472,6 +35532,79 @@ run(function()
 end)
 
 run(function()
+	local AutoHonor
+	local Delay
+	local honoredusers = {}
+	local maxhonors = 2
+	
+	local function getTeammates()
+		local teammates = {}
+		local nonteammates = {}
+		local myTeam = lplr.Team
+		
+		for i, plr in playersService:GetPlayers() do
+			if plr ~= lplr then
+				if plr.Team == myTeam then
+					table.insert(teammates, plr)
+				else
+					table.insert(nonteammates, plr)
+				end
+			end
+		end
+		return teammates, nonteammates
+	end
+	
+	local function honorPlayers()
+		if #honoredusers >= maxhonors then return end
+		
+		local teammates, nonteammates = getTeammates()
+		
+		if #teammates > 0 and #honoredusers < maxhonors then
+			local randomTeammate = teammates[math.random(1, #teammates)]
+			if not honoredusers[randomTeammate.UserId] then
+				task.wait(Delay.Value)
+				bedwars.HonorController:honorPlayer(randomTeammate.UserId)
+				honoredusers[randomTeammate.UserId] = true
+			end
+		end
+		
+		if #nonteammates > 0 and #honoredusers < maxhonors then
+			local randomEnemy = nonteammates[math.random(1, #nonteammates)]
+			if not honoredusers[randomEnemy.UserId] then
+				task.wait(Delay.Value)
+				bedwars.HonorController:honorPlayer(randomEnemy.UserId)
+				honoredusers[randomEnemy.UserId] = true
+			end
+		end
+	end
+	
+	AutoHonor = vape.Categories.AltFarm:CreateModule({
+		Name = "AutoHonor",
+		Function = function(callback)
+			if callback then
+				AutoHonor:Clean(vapeEvents.EntityDeathEvent.Event:Connect(function(deathTable)
+					if deathTable.finalKill and deathTable.entityInstance == lplr.Character and isEveryoneDead() and store.matchState ~= 2 then
+						honorPlayers()
+					end
+				end))
+				AutoHonor:Clean(vapeEvents.MatchEndEvent.Event:Connect(function(...)
+					honorPlayers()
+				end))
+			else
+				table.clear(honoredusers)
+			end
+		end
+	})
+	Delay = AutoHonor:CreateSlider({
+		Name = 'Delay',
+		Min = 0,
+		Max = 1,
+		Decimal = 100,
+		Default = 0.05
+	})
+end)
+
+run(function()
 	local ElektraExtender
 	local RS = game.ReplicatedStorage
 	local EXTRA_BLOCKS = 2
@@ -36235,6 +36368,48 @@ run(function()
 		Default = false,
 		Function = function() end,
 		Tooltip = 'Requires left mouse button to be held down to activate'
+	})
+end)
+
+run(function()
+	local MartinSpeed
+	local martinConn
+
+	MartinSpeed = vape.Categories.Kits:CreateModule({
+		Name = 'MartinSpeed',
+		Function = function(callback)
+			if callback then
+				local syncEvents = bedwars.ClientSyncEvents
+				if not syncEvents or not syncEvents.SwordSwing then
+					warn('[AEROV4] martinspeed: swordswing event not found')
+					return
+				end
+				local ok, conn = pcall(function()
+					return syncEvents.SwordSwing:setPriority(1):connect(function(data)
+						if not data then return end
+						if data.attackSpeed then
+							data.attackSpeed = data.attackSpeed - 0.05
+						end
+						if data.config then
+							data.config.respectAttackSpeedOverride = false
+						else
+							data.config = { respectAttackSpeedOverride = false }
+						end
+					end)
+				end)
+				if ok and conn then
+					martinConn = conn
+				else
+					warn('[AEROV4] martinspeed: failed to hook swordswing')
+				end
+			else
+				if martinConn then
+					pcall(function() martinConn:Disconnect() end)
+					martinConn = nil
+				end
+			end
+		end,
+		Tooltip = 'Removes Martin/Cactus swing restriction — swing like a normal kit'
 	})
 end)
 
