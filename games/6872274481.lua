@@ -16546,7 +16546,7 @@ run(function()
 
 				local beds = collection('bed', Breaker)
 				local luckyblock = collection('LuckyBlock', Breaker)
-				local ironores = collection('iron-ore', Breaker)
+				local ironores = collection('iron_ore_mesh_block', Breaker)
 				customlist = collection('block', Breaker, function(tab, obj)
 					if table.find(Custom.ListEnabled, obj.Name) then
 						table.insert(tab, obj)
@@ -36287,9 +36287,10 @@ end)
 run(function()
 	local AntiDizzy
 	local old = nil
+
 	AntiDizzy = vape.Categories.World:CreateModule({
 		Name = 'AntiDizzy',
-		Tooltip = 'makes you not get dizzy when you collect the purple mushroom',
+		Tooltip = 'Nullifies dizzy movement from mushrooms and toads',
 		Function = function(callback)
 			if callback then
 				old = bedwars.ForestEnvironmentCollectibleEntityController.canPickupEntity
@@ -36308,9 +36309,15 @@ run(function()
 						return old(plr,mushroom)
 					end
 				end
+				runService:BindToRenderStep('antidizzy_kill', Enum.RenderPriority.Character.Value + 2, function()
+					runService:UnbindFromRenderStep('dizzy-status')
+				end)
 			else
-				bedwars.ForestEnvironmentCollectibleEntityController.canPickupEntity = old
-				old = nil
+				if old then
+					bedwars.ForestEnvironmentCollectibleEntityController.canPickupEntity = old
+					old = nil
+				end
+				runService:UnbindFromRenderStep('antidizzy_kill')
 			end
 		end
 	})
@@ -36340,6 +36347,11 @@ run(function()
 							task.wait(0.1)
 							continue
 						end
+						local hum = entitylib.character and entitylib.character:FindFirstChildOfClass('Humanoid')
+						if mushtype == 'Heal' and hum and hum.Health >= hum.MaxHealth then
+							task.wait(0.1)
+							continue
+						end
 						if deltapos <= Range.Value then
 							if Streamer.Enabled then
 								local prompt = v:FindFirstAncestorWhichIsA('ProximityPrompt')
@@ -36362,6 +36374,10 @@ run(function()
 			end
 		end
 	})
+	Blacklist = AutoMushroom:CreateTextList({
+		Name = "Blacklist",
+		Default = {'Dizzy'}
+	})
 	Range = AutoMushroom:CreateSlider({
 		Name = 'Distance',
 		Min = 0,
@@ -36380,10 +36396,6 @@ run(function()
 		Max = 2,
 		Default = 0.1,
 		Decimal = 10
-	})
-	Blacklist = AutoMushroom:CreateTextList({
-		Name = "Blacklist",
-		Default = {'Dizzy'}
 	})
 	Streamer = AutoMushroom:CreateToggle({Name='Streamer Mode'})
 	Animations = AutoMushroom:CreateToggle({Name='Animations',Default=true})
