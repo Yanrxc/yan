@@ -1,13 +1,8 @@
 --This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 --This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 repeat task.wait() until game:IsLoaded()
-local isReload = shared.vapereload
-shared.vapereload = nil
-if isReload then return end
-if shared.vape then
-    pcall(shared.vape.Uninject, shared.vape)
-    shared.vape = nil
-end
+if shared.vapereload then return end
+if shared.vape then shared.vape:Uninject() end
 
 if identifyexecutor then
 	if table.find({'Argon', 'Wave', 'Seliware', 'Volt'}, ({identifyexecutor()})[1]) then
